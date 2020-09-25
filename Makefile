@@ -139,6 +139,7 @@ UPROGS=\
 	$U/_forktest\
 	$U/_grep\
 	$U/_primes\
+	$U/_xargs\
 	$U/_pingpong\
 	$U/_init\
 	$U/_kill\
@@ -148,6 +149,7 @@ UPROGS=\
 	$U/_rm\
 	$U/_sh\
 	$U/_stressfs\
+	$U/_find\
 	$U/_usertests\
 	$U/_grind\
 	$U/_wc\
