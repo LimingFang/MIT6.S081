@@ -8,12 +8,15 @@
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
+#include "proc.h"
+
+extern struct proc proc[NPROC];
+
 
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
-
 struct run {
   struct run *next;
 };
@@ -28,6 +31,21 @@ kinit()
 {
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
+}
+
+uint64
+kfreemem()
+{
+  acquire(&kmem.lock);
+  struct run *r;
+  
+  uint64 total = 0;
+  for (r = kmem.freelist; r; r = r->next) {
+    total++;
+  }
+
+  release(&kmem.lock);
+  return total*PGSIZE;
 }
 
 void

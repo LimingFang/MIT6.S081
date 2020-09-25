@@ -5,6 +5,7 @@
 #include "param.h"
 #include "memlayout.h"
 #include "spinlock.h"
+#include "sysinfo.h"
 #include "proc.h"
 
 uint64
@@ -15,6 +16,37 @@ sys_exit(void)
     return -1;
   exit(n);
   return 0;  // not reached
+}
+
+uint64
+sys_sysinfo(void)
+{
+  //get info about freemem and #proc,fill these info into the given pointer
+  struct proc *p = myproc();
+  uint64 info_addr;
+  struct sysinfo info;
+  if(argaddr(0,&info_addr)<0)
+    return -1;
+
+  if(copyin(p->pagetable, (char *)&info, info_addr,sizeof(struct sysinfo)) < 0) {
+    return -1;
+  }
+  info.freemem = kfreemem();
+  info.nproc = processcount();
+  if(copyout(p->pagetable,info_addr,(char*)&info,sizeof(struct sysinfo))<0)
+    return -1;
+  
+  return 0;
+}
+
+uint64
+sys_trace(void)
+{
+  int n;
+  if(argint(0,&n)<0)
+    return -1;
+  (myproc()->traced_syscall) = n;
+  return 0;
 }
 
 uint64
@@ -72,6 +104,7 @@ sys_sleep(void)
   release(&tickslock);
   return 0;
 }
+
 
 uint64
 sys_kill(void)

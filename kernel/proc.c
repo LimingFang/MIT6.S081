@@ -253,6 +253,18 @@ growproc(int n)
   return 0;
 }
 
+//Get the number of processes
+int
+processcount(void)
+{
+  int count = 0;
+  for(int i=0;i!=NPROC;i++)
+    if(proc[i].state!=UNUSED)
+      count++;
+  return count;
+}
+  
+
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 int
@@ -276,6 +288,9 @@ fork(void)
   np->sz = p->sz;
 
   np->parent = p;
+
+  //for debug:copy the trace mask;
+  np->traced_syscall = p->traced_syscall;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
