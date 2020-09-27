@@ -116,14 +116,21 @@ CPU硬件层面提供了可能（RISC-V）
 
 ### Starting
 
-> 简单的描述内核是如何启动并运行第一个进程的
+> 简单的描述内核是如何启动并运行第一个进程的，后续章节描述细节
 
-- boot loader（ROM）：将Kernel载入内存，在machine mode下从_entry开始运行（不分页）
-  - 初始化内核stack
-  - 调用start函数（kernel/start.c):进行一些初始化设置并设置好时钟中断，然后调用`mret`返回supervisor mode（正常来说`mret`用于从之前的监管模式返回机器模式，但是这里只是提前虚拟设置好监管模式，然后返回）。具体来说，通过设置`mstatus`寄存器，同时在`mepc`中存放main函数地址
-- main：初始化一些设备、子系统。开始创建第一个进程（调用`userinit`），在`user/initcode.S`中以汇编语言调用`exec`返回内核，形成`init`进程，最终生成console
+**配合xv6源代码理解启动过程**
 
-
+- 首先在machine mode下运行
+  - 启动后最先运行的是`kernel/entry.S`：主要是为内核代码建立stack，然后跳转到`kernel/start.c`
+  - **start**负责建立时钟中断、进行部分初始化，最后跳转到supervisor mode的`kernel/main.c`注：其跳转主要是依靠`mret`指令
+    - `mret`指令正常情况下是负责从supervisor mode->machie mode
+    - 但是这里首先在`mstatus`寄存器中存放supervisor mode，在`mepc`寄存器中存放`main`函数的地址，然后返回到`main`函数
+- 此时是supervisor mode
+  - `kernel/main.c`：此时需要完成设备和一些子系统的初始化配置，例如分页机制、中断向量表、文件表、设备中断配置。最后跳转到`kernel/proc.c`中的`userinit()`函数为转向user space做准备----建立第一个进程
+  - `kernel/proc.c:userinit()`：生成第一个进程，配置proc结构体，函数结束后以某种方式跳转到了`kernel/initcode.S`
+  - `kernel/initcode.S`：调用exec系统调用重新陷入内核变成用户space的第一个init进程
+  - init进程：在user space下运行，配置文件描述符，建立终端console，完成启动
+  - 
 
 ## Chp4:Traps and System calls
 
