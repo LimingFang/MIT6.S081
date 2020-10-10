@@ -379,6 +379,10 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
+  // Lab pgtbl:part3
+  return copyin_new(pagetable,dst,srcva,len);
+  // end
+  
   uint64 n, va0, pa0;
 
   while(len > 0){
@@ -405,6 +409,10 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
+  // Lab pgtbl:part3
+  return copyinstr_new(pagetable,dst,srcva,max);
+  // end
+    
   uint64 n, va0, pa0;
   int got_null = 0;
 
@@ -440,3 +448,65 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// Lab pgtbl: part1
+void
+vmprint_helpfunc(pagetable_t pagetable,int depth){
+  for(int i=0;i!=512;i++){
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V) == 0)
+      continue;
+    for(int _level=0;_level<=depth;_level++){
+      printf("..");
+      if(_level!=depth)
+        printf(" ");
+    }
+    printf("%d: pte %p pa %p\n",i,pte,PTE2PA(pte));
+    if(pte & (PTE_R|PTE_W|PTE_X))
+      continue;
+
+    uint64 child = PTE2PA(pte);
+    vmprint_helpfunc((pagetable_t)child,depth+1);
+  }
+}
+
+void
+vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n",pagetable);
+  vmprint_helpfunc(pagetable,0);
+
+  return;
+}
+//end
+
+// Lab pgtbl:part3
+void
+vm_userpgtbl_to_kpgtbl(pagetable_t userpgtbl,pagetable_t kpgtbl,uint64 oldsz,uint64 newsz)
+{
+  /*
+   * oldsz:起始地址
+   * newsz:末尾地址
+   * 将[oldsz,newsz]的pte进行copy-paste
+   */
+  if(newsz>=PLIC)
+    panic("kernel process pgtbl");
+
+  if(oldsz>=newsz)
+    return;
+
+  pte_t *upte = 0;
+  pte_t *kpte = 0;
+
+  oldsz = PGROUNDUP(oldsz);
+  newsz = PGROUNDDOWN(newsz);
+  
+  for(;oldsz<newsz;oldsz+=PGSIZE){
+    upte = walk(userpgtbl,oldsz,0);
+    kpte = walk(kpgtbl,oldsz,1);
+
+    *kpte = *upte;
+    *kpte = *kpte&(~(PTE_X|PTE_W|PTE_U));
+  }
+}
+// end

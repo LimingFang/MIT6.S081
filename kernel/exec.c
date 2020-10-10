@@ -116,6 +116,15 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  // Lab pgtbl:part1
+  if(p->pid==1)
+    vmprint(p->pagetable);
+  // end
+
+  // Lab pgtbl:part3
+  vm_userpgtbl_to_kpgtbl(p->pagetable,p->kpagetable,0,p->sz);
+  // end
+  
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

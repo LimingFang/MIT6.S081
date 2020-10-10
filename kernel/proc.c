@@ -85,6 +85,52 @@ allocpid() {
   return pid;
 }
 
+
+// Lab pgtbl:part2
+extern char etext[];  
+extern char trampoline[];
+
+pagetable_t
+kvm_proc_init(struct proc* p){
+  pagetable_t copyedpagetable = 0;
+  copyedpagetable = (pagetable_t)kalloc();
+  memset(copyedpagetable,0,PGSIZE);
+
+  if(mappages(copyedpagetable,UART0,PGSIZE,UART0,PTE_R|PTE_W)<0)
+    panic("kvm_proc_init");
+
+  if(mappages(copyedpagetable,VIRTIO0,PGSIZE,VIRTIO0,PTE_R|PTE_W)<0)
+    panic("kvm_proc_init");
+
+  if(mappages(copyedpagetable,CLINT,0x10000,CLINT,PTE_R|PTE_W)<0)
+    panic("kvm_proc_init");
+
+  if(mappages(copyedpagetable,PLIC,0x400000,PLIC,PTE_R|PTE_W)<0)
+    panic("kvm_proc_init");
+
+  if(mappages(copyedpagetable,KERNBASE,(uint64)etext-KERNBASE,KERNBASE,PTE_R|PTE_X)<0)
+    panic("kvm_proc_init");
+
+  if(mappages(copyedpagetable,(uint64)etext,PHYSTOP-(uint64)etext,(uint64)etext,PTE_R|PTE_W)<0)
+    panic("kvm_proc_init");
+
+  if(mappages(copyedpagetable,TRAMPOLINE,PGSIZE,(uint64)trampoline,PTE_R|PTE_X)<0)
+    panic("kvm_proc_init");
+
+  for(struct proc* p=proc;p!=&proc[NPROC];p++){
+    uint64 pa,va;
+    va = KSTACK((p-proc));
+    pa = kvmpa(va);
+
+    if(mappages(copyedpagetable,va,PGSIZE,pa,PTE_R|PTE_W)<0)
+      panic("kvm_proc_init");
+  }
+
+  return copyedpagetable;
+}
+// end
+
+
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
@@ -115,6 +161,9 @@ found:
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
+  // Lab pgtbl:part2
+  p->kpagetable = kvm_proc_init(p);
+  // end
   if(p->pagetable == 0){
     freeproc(p);
     release(&p->lock);
@@ -141,6 +190,10 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  // Lab pgtbl:part2
+  if(p->kpagetable)
+    proc_freegivenpgtbl(p->kpagetable);
+  // end
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -195,6 +248,25 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmfree(pagetable, sz);
 }
 
+// Lab pgtbl:part2
+void
+proc_freegivenpgtbl(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      proc_freegivenpgtbl((pagetable_t)child);
+      pagetable[i] = 0;
+    } else if(pte & PTE_V)
+      continue;
+  }
+  kfree((void*)pagetable);
+}
+// end
+
 // a user program that calls exec("/init")
 // od -t xC initcode
 uchar initcode[] = {
@@ -230,6 +302,10 @@ userinit(void)
 
   p->state = RUNNABLE;
 
+  // Lab pgtbl:part3
+  vm_userpgtbl_to_kpgtbl(p->pagetable,p->kpagetable,0,p->sz);
+  // end
+
   release(&p->lock);
 }
 
@@ -249,6 +325,11 @@ growproc(int n)
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
+  
+  // Lab pgtbl:part3
+  vm_userpgtbl_to_kpgtbl(p->pagetable,p->kpagetable,p->sz,sz);
+  // end
+
   p->sz = sz;
   return 0;
 }
@@ -294,6 +375,10 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+
+  // Lab pgtbl:part3
+  vm_userpgtbl_to_kpgtbl(np->pagetable,np->kpagetable,0,np->sz);
+  // end
 
   release(&np->lock);
 
@@ -473,7 +558,16 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // Lab pgtbl:part2
+        w_satp(MAKE_SATP(p->kpagetable));
+        sfence_vma();
+        // end
         swtch(&c->context, &p->context);
+
+        // Lab pgtbl:part2
+        kvminithart();
+        // end
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.

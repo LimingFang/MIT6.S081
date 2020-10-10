@@ -2495,6 +2495,7 @@ badarg(char *s)
 void
 execout(char *s)
 {
+  printf("here\n");
   for(int avail = 0; avail < 15; avail++){
     int pid = fork();
     if(pid < 0){
