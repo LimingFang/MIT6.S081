@@ -132,6 +132,179 @@ CPU硬件层面提供了可能（RISC-V）
   - init进程：在user space下运行，配置文件描述符，建立终端console，完成启动
   - 
 
+
+
+
+
+## Chp3:Page tables
+
+### 简介
+
+页表机制帮助每个进程实现拥有独立的内存地址空间，即虚拟地址（VA)
+
+虚拟地址的页表不仅负责VA->PA的翻译，还负责管理PA的访问控制，同时，页表同样使得不同进程的VA映射到相同的PA实现共享
+
+这一章介绍页表机制以及如何使用
+
+
+
+### Paging hardware
+
+xv6在Sv39 RISC-V上运行：地址64位，只用了底部的39位，每一页是4KB，因此VPN占了27位，VPO占了12位，一共有$2^{27}$个页表项（PTE)，PPN一共有44位，加上12位的PPO，物理地址一共是56位
+
+翻译的过程是：将VA划分成25+27+12三部分，高25位没有用到（目前），中27位作为VPN(index)到page table中查找对应的PTE，得到PPN，配合低12位生成VA（56位）
+
+**多级页表**
+
+如果只有一个页表，需要容纳$2^{39}$个PTE，显然是不显示的，因此引入多级页表，Linux使用的是4级页表，Xv6使用三级页表，将VPN划分成9+9+9的形式，一级页表配合PTBR查找到一级PTE，得到二级页表的基地址，配合第二个9bits查找，以此类推
+
+更具体的说，可以将39位的虚拟地址分成$2^{27}$个page，每个page有4KB，同时每一级的页表管理512个PTE，也就是说一级页表将虚拟地址按照1GB进行切分，二级页表在每个大的1GB范围内按照2MB进行切分，三级页表在2MB范围内按照4KB进行切分。随着页表搜索的递进，虚拟地址搜索范围都大大减小
+
+> **PTE：**每一个页表项内容包括44位的基地址和10位的flag信息，占用8bytes
+
+一旦某个连续地址空间内都没有映射，则多级页表相应位置是NULL，后续就不会分配PTE，省内存
+
+每个PTE的10位flag包含：
+
+- PTE_V：PTE是否存在
+- PTE_R：是否Readable
+- PTE_W：是否Writeable
+- PTE_X：是否可执行
+- PTE_U：user mode下是否可执行
+
+PTBR在xv6称为satp寄存器
+
+
+
+#### Kernel address space
+
+内核也需要将自身的VA映射到PA，在`kernel/memlayout.h`中有相关定义
+
+QEMU模拟与设备的交互是通过读写相关内存地址完成的
+
+首先运行的是物理地址0x80000000->0x86400000的内容，这段地址是直接映射的，即PA=VA，内容包括内核代码，内核数据，free memory
+
+其他内容包括：
+
+- trampoline page：位于VA顶部，被映射到0x80000000开始的地方（那地方被映射了两次，后面会解释）
+- stack page：上下都有guard page（invalid），用来防止overflow
+
+
+
+### 创建地址空间
+
+`kernel/vm.c`中定义了操作地址空间和page的操作
+
+`pagetable_t`定义的是指向root page-table（一级页表)的结构体指针，既可以作为用户进程页表，也可以作为kernel page-table使用。本身是一个指向uint64的指针
+
+`walk`用来在页表中查询PTE，具体过程是：给定一个页表的基地址，va，以及alloc选项参数，通过shift等实现定义好的Macro，获取va的2，1，0级页表的Index，最终返回的是一个指向该页表项的64位整数指针。
+
+`mappages`建立新的映射，即给定pa，va以及页表基地址及需要分配的大小，以及perm选项参数，将va->va+size的虚拟地址映射到以pa为起始的一段连续内存上，所谓建立映射，本质是建立在pagetable里设置PTE
+
+kvm开头的函数操作kernel页表，uvm操作用户页表
+
+`copyout`和`copyin`是工具函数，将数据在用户和内核地址空间之间传递，在系统调用时会用到
+
+
+
+在boot时，运行到`kernel/main.c（`初始化一些子系统）时，就调用`kvminit`创建内核页表
+
+具体来说，首先在PA中分配one page to hold root-table page，然后调用`kvmmap`对内核内存空间进行mapping。
+
+> `kvmmap`调用`mappages`
+
+`kvmmap`：调用mappage函数建立内核地址空间的映射
+
+创建内核地址空间还包括为每个进程（实现定义好最大进程数）创建一个内核栈，即每次分配一个物理页与内核地址空间的指定va建立映射，最后更新SATP寄存器
+
+
+
+### 物理内存分配
+
+---
+
+#### 初始化分配器
+
+> 现在不用管自旋锁
+
+
+
+### 进程地址空间
+
+---
+
+用户进程地址空间分布：（以page为单位）
+
+- trampoline
+- trapframe
+- heap
+- stack：只有一页大小
+- guard page（为了防止stack overflow）
+- data
+- text
+
+
+
+### sbrk
+
+---
+
+系统调用用于分配or缩减内存
+
+Sbrk->growproc->uvmalloc+uvmdealloc
+
+分配内存，即分配出空闲的物理地址，建立PTE，更新用户页表
+
+#### 分配
+
+`kalloc`分配物理地址，`mappages`建立PTE
+
+#### 缩减
+
+`walk`查找PTE,`kfree`释放物理地址
+
+
+
+### exec（源码分析）
+
+---
+
+exec系统调用用于创建用户进程，关键一步在于替用户进程创建页表
+
+- `proc_pagetable`：创建用户进程页表
+
+  - 申请one page物理内存用来存放二级页表
+    - `uvmcreate`：底层是调用`kalloc`
+  - 建立映射
+    - 将trampoline code映射到TRAMPOLINE的va处，用于进程的return，代码是实现写好的
+    - 将trapframe映射到进程的trapframe，地址就在trampoline下一页
+  - 映射建立完毕
+  - 返回创建好的页表
+
+- 检查ELF header
+
+  - elf结构体是 `struct elfhdr`，后面跟着program section header `struct proghdr`
+  - 首先检查ELF header是正确的，即核对magic number
+  - 调用`proc_pagetable`创建用户进程页表
+
+- load program
+
+  - 将每个程序段放到正确的位置，建立映射
+
+- 创建user stack
+
+  - `uvmalloc` ：在给定的虚拟地址区间内，申请物理内存并建立映射
+
+  - user stack只有one page size，但是申请two page size，在stack下方的一页是guard page防止stack overflow
+
+  
+
+
+
+
+
+
+
 ## Chp4:Traps and System calls
 
 ### 系统调用
