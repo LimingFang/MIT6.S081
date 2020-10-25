@@ -50,7 +50,7 @@ def test_answers():
 def test_count():
     r.run_qemu(shell_script([
         'stats', 'stats'
-    ]), timeout=150)
+    ]), timeout=250)
     matches = re.findall(r'^copyin: (\d+)', r.qemu.output, re.MULTILINE)
     assert_equal(len(matches), 2)
     assert_equal(int(matches[1]), int(matches[0]) + 28)
@@ -62,7 +62,7 @@ def test_count():
 def test_usertests():
     r.run_qemu(shell_script([
         'usertests'
-    ]), timeout=300)
+    ]), timeout=500)
 
 def usertest_check(testcase, nextcase, output):
     if not re.search(r'\ntest {}: [\s\S]*OK\ntest {}'.format(testcase, nextcase), output):
