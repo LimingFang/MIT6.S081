@@ -8,3 +8,5 @@ Lab util (100/100), 6h
 Lab syscall (35/35), 4h
 
 Lab pgtbl (66/66), 14h
+
+Lab traps (85/85), 10h
