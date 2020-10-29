@@ -1,0 +1,8 @@
+1. a0->a7   a2 holds
+2. in the addr 0x26,the call to g is inlined by compiler
+3. 0x7e0
+4. 0x4501(since jalr will put PC+4-->ra(by default))
+5. He110 World
+   because in little endian, the RMB is lower address, and in ASCII table, we could find 72 refers to char 'r', so 'r' is printed first.
+   if in big endian, i should be 0x726c6400, 57616 needs not to be changed.
+6. It depends on $a2(not determinated)  

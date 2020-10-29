@@ -69,6 +69,9 @@ sys_sleep(void)
     }
     sleep(&ticks, &tickslock);
   }
+  // Lab trap
+  backtrace();
+  // end
   release(&tickslock);
   return 0;
 }
@@ -95,3 +98,33 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// lab trap
+uint64
+sys_sigalarm(void)
+{
+  struct proc *p = myproc();
+  int interval = 0;
+  void (*handler)();
+  if(argint(0,&interval)<0)
+    return -1;
+  if(argaddr(1,(uint64*)&handler)<0)
+    return -1;
+  if(interval){
+    p->interval = interval;
+    p->handler = (void(*)())handler;
+    p->tick_remain = interval;
+  }
+  return 1;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  //在handler里调用，用来修改
+  struct proc* p = myproc();
+  memmove((void*)p->trapframe,(void*)p->backup_trapframe,sizeof(struct trapframe));
+  p->re_entry_allowed = 1;
+  return 0;
+}
+// end

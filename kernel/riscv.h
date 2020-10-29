@@ -137,6 +137,21 @@ r_medeleg()
   return x;
 }
 
+
+//-----------//
+//Lab4 trap
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );
+  return x;
+}
+// end
+//-----------//
+
+
+
 static inline void 
 w_medeleg(uint64 x)
 {

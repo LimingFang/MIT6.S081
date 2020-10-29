@@ -77,8 +77,25 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  // Lab trap
+  if(which_dev == 2){
+    if(p->interval>0){
+      if(p->tick_remain>0)
+        (p->tick_remain)--;
+      else{
+        if(p->re_entry_allowed){
+          //将trapframe保存的备份到backup_trapframe，因为之后返回userspace在陷入kernel时，trapframe会被修改
+          //p->backup_trapframe->
+          p->tick_remain = p->interval;
+          memmove((void*)p->backup_trapframe,(void*)p->trapframe,sizeof(struct trapframe));
+          p->trapframe->epc = (uint64)(p->handler);
+          p->re_entry_allowed = 0;
+        }
+      }
+    }
     yield();
+  }
+  // end
 
   usertrapret();
 }
@@ -114,7 +131,7 @@ usertrapret(void)
   x &= ~SSTATUS_SPP; // clear SPP to 0 for user mode
   x |= SSTATUS_SPIE; // enable interrupts in user mode
   w_sstatus(x);
-
+  
   // set S Exception Program Counter to the saved user pc.
   w_sepc(p->trapframe->epc);
 
@@ -164,6 +181,7 @@ clockintr()
 {
   acquire(&tickslock);
   ticks++;
+  
   wakeup(&ticks);
   release(&tickslock);
 }
