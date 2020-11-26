@@ -4,6 +4,7 @@
 #include "elf.h"
 #include "riscv.h"
 #include "defs.h"
+#include "spinlock.h"
 #include "fs.h"
 
 /*
@@ -14,6 +15,19 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+
+//! COW
+extern int mem_ref[PHYSTOP/PGSIZE];
+struct run {
+  struct run *next;
+};
+
+struct Kmem{
+  struct spinlock lock;
+  struct run *freelist;
+};
+extern struct Kmem kmem;
+//! COW
 
 /*
  * create a direct-map page table for the kernel.
@@ -311,7 +325,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  //! COW
+  //char *mem;
+  //! COW
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,14 +335,22 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    //! COW    
+    //flags = PTE_FLAGS(*pte);
+    //! COW
+    //if((mem = kalloc()) == 0)
+    //goto err;
+    //memmove(mem, (char*)pa, PGSIZE);
+    *pte = (*pte|PTE_COW)&(~PTE_W);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    acquire(&kmem.lock);
+    mem_ref[INDEX(pa)]++;
+    release(&kmem.lock);
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      kfree((void*)pa);
       goto err;
     }
+    //! COW
   }
   return 0;
 
@@ -334,6 +358,62 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
 }
+
+//! COW
+int
+uvmcow(pagetable_t pgtbl,uint64 va){
+  // -1:fail
+  // 0:ok
+  if(va >= MAXVA)
+    return -1;
+
+  pte_t *pte = walk(pgtbl,va,0);
+  if(pte==0)
+    return -1;
+
+  if(!(*pte&PTE_COW))
+    return -1;
+
+  struct run *r;
+  acquire(&kmem.lock);
+  // 先查看ref_count
+  // 如果ref_count==1,则无需新分配，只需要修改pte
+  // 如果ref_count>1，则需要重新分配，且修改pte
+  uint64 pa = PTE2PA(*pte);
+  int rf = mem_ref[INDEX(pa)];
+  if(rf==1){
+    *pte = (*pte|PTE_W)&(~PTE_COW);
+    release(&kmem.lock);
+    return 0;
+  }
+  else{
+    --mem_ref[INDEX(pa)];
+    if(mem_ref[INDEX(pa)]==1)
+      *pte = (*pte|PTE_W)&(~PTE_COW);
+    else
+      *pte = (*pte|PTE_W);
+    int flag = PTE_FLAGS(*pte)&(~PTE_COW);
+    r = kmem.freelist;
+    if(r){
+      kmem.freelist = r->next;
+      mem_ref[INDEX((uint64)r)] = 1;
+      memset((char*)r, 5, PGSIZE); // fill with junk
+      memmove((char*)r,(void*)pa,PGSIZE);
+
+      //将新的物理地址更新到新的pte中
+      *pte = PA2PTE((uint64)r)|flag|PTE_W;
+      release(&kmem.lock);
+      return 0;
+    }
+    else{
+      release(&kmem.lock);
+      return -1;
+    }
+  }
+  // unreachable
+  return 0;
+}
+//! COW
 
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
@@ -358,7 +438,18 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    //pa0 = walkaddr(pagetable, va0);
+    //! COW
+    if(va0>=MAXVA)
+      return -1;
+    pte_t *pte = walk(pagetable, va0, 0);
+    if(pte==0)
+      return -1;
+    if(!(*pte & PTE_W))
+      if(uvmcow(pagetable, va0)==-1)
+        return -1;
     pa0 = walkaddr(pagetable, va0);
+    //! COW
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
