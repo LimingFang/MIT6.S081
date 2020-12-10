@@ -10,12 +10,34 @@
 #define STACK_SIZE  8192
 #define MAX_THREAD  4
 
+// Saved registers for context switches.
+struct context {
+  uint64 ra;
+  uint64 sp;
+
+  // callee-saved
+  uint64 s0;
+  uint64 s1;
+  uint64 s2;
+  uint64 s3;
+  uint64 s4;
+  uint64 s5;
+  uint64 s6;
+  uint64 s7;
+  uint64 s8;
+  uint64 s9;
+  uint64 s10;
+  uint64 s11;
+};
 
 struct thread {
   char       stack[STACK_SIZE]; /* the thread's stack */
   int        state;             /* FREE, RUNNING, RUNNABLE */
-
+  // lab THREAD
+  struct context cont;
+  // lab THREAD
 };
+// the size of thread = 8192+4+14*8=0x2074 = 0x2000+0x4+0x70
 struct thread all_thread[MAX_THREAD];
 struct thread *current_thread;
 extern void thread_switch(uint64, uint64);
@@ -63,6 +85,9 @@ thread_schedule(void)
      * Invoke thread_switch to switch from t to next_thread:
      * thread_switch(??, ??);
      */
+    //! 在t和current_thread之间交换
+    //t->state = RUNNABLE;
+    thread_switch((uint64)(&(t->cont)),(uint64)(&(current_thread->cont)));
   } else
     next_thread = 0;
 }
@@ -77,6 +102,12 @@ thread_create(void (*func)())
   }
   t->state = RUNNABLE;
   // YOUR CODE HERE
+  // lab THREAD
+  // 已经将该线程添加到了任务队列中，不需要在这里立即运行,但需要记住起始地址和栈
+  (t->cont).sp = (uint64)&(t->stack[STACK_SIZE-1]);
+  (t->cont).ra = (uint64)func;
+  // 之后通过swtch进行调度的时候,可以直接跳转到func（$ra)
+  // lab THREAD
 }
 
 void 

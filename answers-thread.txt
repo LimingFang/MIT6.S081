@@ -1,0 +1,2 @@
+结果是：多线程add entry会导致有些entry没有被正确的插入
+分析（可能的execution order):table一共是长度为5个链表，假设两个线程都对第三个节点进入插入（第三个节点也是一个链表的head），insert函数是先创建一个节点，然后插入到head前，成为head。假设线程i创了nodei,此时两个线程都完成创建，都还剩最后两步。先是node1指向head，node2指向head，然后最后一行*p=e,哪个线程先运行就会被最后一个线程覆盖，那个节点其实就lost了

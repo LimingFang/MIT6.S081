@@ -20,6 +20,7 @@ barrier_init(void)
   assert(pthread_mutex_init(&bstate.barrier_mutex, NULL) == 0);
   assert(pthread_cond_init(&bstate.barrier_cond, NULL) == 0);
   bstate.nthread = 0;
+  bstate.round = 0;
 }
 
 static void 
@@ -30,7 +31,29 @@ barrier()
   // Block until all threads have called barrier() and
   // then increment bstate.round.
   //
-  
+  // 线程1在第47轮首先到达，陷入沉睡
+  // 线程2结束46轮，后进入47轮的屏障
+  // 线程2发出广播
+
+  pthread_mutex_lock(&bstate.barrier_mutex);
+  bstate.nthread++;
+  if(bstate.nthread%nthread){
+    //printf("0x%x 1 %d\n",pthread_self(),bstate.nthread);
+    pthread_cond_wait(&bstate.barrier_cond,&bstate.barrier_mutex);
+    pthread_mutex_unlock(&bstate.barrier_mutex);
+    //printf("0x%x 2 %d\n",pthread_self(),bstate.nthread);
+  }
+  //printf("0x%x 已经解锁\n",pthread_self());
+  else{
+    bstate.nthread = 0;
+    bstate.round++;
+    //printf("0x%x 3 %d\n",pthread_self(),bstate.nthread);
+    pthread_cond_broadcast(&bstate.barrier_cond);
+    //printf("0x%x 4 %d\n",pthread_self(),bstate.nthread);
+    pthread_mutex_unlock(&bstate.barrier_mutex);
+    //printf("0x%x 已经解锁\n",pthread_self());
+  }
+  return ;
 }
 
 static void *
@@ -41,12 +64,13 @@ thread(void *xa)
   int i;
 
   for (i = 0; i < 20000; i++) {
+    //printf("%d 0x%x next round\n",i,pthread_self());
     int t = bstate.round;
     assert (i == t);
     barrier();
     usleep(random() % 100);
+    //printf("0x%x %d\n",pthread_self(),i);
   }
-
   return 0;
 }
 
